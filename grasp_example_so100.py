@@ -124,16 +124,16 @@ def main():
     # Step 1: Initialize Simulation Environment
     # -------------------------------------------------------------------------
     print("Initializing simulation environment...")
-    env = SimGrasp(urdf_path=URDF_PATH, frequency=FREQUENCY, objects=SIMULATION_OBJECTS)
+    # env = SimGrasp(urdf_path=URDF_PATH, frequency=FREQUENCY, objects=SIMULATION_OBJECTS)
 
-    # env = SimGrasp(
-    #     urdf_path=URDF_PATH,
-    #     objects=SIMULATION_OBJECTS,
-    #     frequency=FREQUENCY,
-    #     start_orientation=[0,            # roll
-    #                        0,            # pitch
-    #                        pi/2]         # yaw  → 90°
-    # )
+    env = SimGrasp(
+        urdf_path=URDF_PATH,
+        objects=SIMULATION_OBJECTS,
+        frequency=FREQUENCY,
+        start_orientation=[0,            # roll
+                           0,            # pitch
+                           pi/2]         # yaw  → 90°
+    )
 
     # Initialize API client for grasp prediction services
     client = GeneralBionixClient(api_key=API_KEY)

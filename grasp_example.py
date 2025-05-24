@@ -29,25 +29,25 @@ from img_click import ImgClick
 from vis_grasps import launch_visualizer
 from utils import downsample_pcd, upsample_pcd
 from sim import (
-    SimGrasp, 
-    ObjectInfo, 
-    CUBE_ORIENTATION, 
-    CUBE_SCALING, 
-    SPHERE_ORIENTATION, 
-    SPHERE_SCALING, 
-    TRAY_ORIENTATION, 
-    TRAY_SCALING, 
-    TRAY_POS, 
-    CUBE_RGBA, 
-    SPHERE_RGBA, 
+    SimGrasp,
+    ObjectInfo,
+    CUBE_ORIENTATION,
+    CUBE_SCALING,
+    SPHERE_ORIENTATION,
+    SPHERE_SCALING,
+    TRAY_ORIENTATION,
+    TRAY_SCALING,
+    TRAY_POS,
+    CUBE_RGBA,
+    SPHERE_RGBA,
     SPHERE_MASS,
     DUCK_ORIENTATION,
     DUCK_SCALING,
 )
 
 # User TODO
-API_KEY = "" # Use your API key here
-OS = "LINUX" # "MAC" or "LINUX"
+API_KEY = "JAi54QOl26dJ6vOjfFqMJcmMI1S5zS6QNE7p73eO"  # Use your API key here
+OS = "MAC"  # "MAC" or "LINUX"
 
 # Define simulation objects
 SIMULATION_OBJECTS = [
@@ -89,28 +89,27 @@ SIMULATION_OBJECTS = [
 
 FREQUENCY = 30
 URDF_PATH = "piper_description/urdf/piper_description_virtual_eef_free_gripper.urdf"
-DOWN_SAMPLE = 4 # Don't change this
-
-
+DOWN_SAMPLE = 4  # Don't change this
 
 
 def main():
     """
     Main execution function for the grasp prediction pipeline.
-    
+
     This function orchestrates the complete workflow from scene setup
     to grasp execution, integrating multiple services and components.
     """
-    
+
     # -------------------------------------------------------------------------
     # Step 1: Initialize Simulation Environment
     # -------------------------------------------------------------------------
     print("Initializing simulation environment...")
-    env = SimGrasp(urdf_path=URDF_PATH, frequency=FREQUENCY, objects=SIMULATION_OBJECTS)
-    
+    env = SimGrasp(urdf_path=URDF_PATH, frequency=FREQUENCY,
+                   objects=SIMULATION_OBJECTS)
+
     # Initialize API client for grasp prediction services
     client = GeneralBionixClient(api_key=API_KEY)
-    
+
     # Launch 3D visualizer for displaying grasps
     vis = launch_visualizer()
 
@@ -120,7 +119,7 @@ def main():
     print("Capturing camera view and generating point cloud...")
     # Render RGB-D image from robot's camera perspective
     color, depth, _ = env.render_camera()
-    
+
     # Convert RGB-D image to 3D point cloud in camera coordinate frame
     pcd = env.create_pointcloud(color, depth)
 
@@ -131,7 +130,7 @@ def main():
     print("OBJECT SELECTION")
     print("="*60)
     print("Click on the object you want to grasp, then close the image window")
-    
+
     # Launch interactive image viewer for user to select target object
     img_click = ImgClick(np.asarray(pcd.colors), os=OS)
     x, y = img_click.run()
@@ -151,19 +150,22 @@ def main():
     # Step 5: Point Cloud Cropping Service
     # -------------------------------------------------------------------------
     print("Requesting Point Cloud Cropping service...")
-    
+
     # Call external service to crop point cloud around user-selected object
     # Adjusts click coordinates for downsampled point cloud
     cropped_pcd_data = client.crop_point_cloud(pcd_ds, int(x/DOWN_SAMPLE), y)
 
     # Convert service response back to Open3D point cloud format
     cropped_pcd_cam_frame = o3d.geometry.PointCloud()
-    cropped_pcd_cam_frame.points = o3d.utility.Vector3dVector(np.array(cropped_pcd_data.points))
-    cropped_pcd_cam_frame.colors = o3d.utility.Vector3dVector(np.array(cropped_pcd_data.colors))
+    cropped_pcd_cam_frame.points = o3d.utility.Vector3dVector(
+        np.array(cropped_pcd_data.points))
+    cropped_pcd_cam_frame.colors = o3d.utility.Vector3dVector(
+        np.array(cropped_pcd_data.colors))
 
     # Upsample cropped point cloud back to original resolution
     # This ensures we maintain detail while benefiting from faster cropping
-    cropped_pcd_crop_full_cam_frame = upsample_pcd(cropped_pcd_cam_frame, pcd, DOWN_SAMPLE)
+    cropped_pcd_crop_full_cam_frame = upsample_pcd(
+        cropped_pcd_cam_frame, pcd, DOWN_SAMPLE)
 
     # -------------------------------------------------------------------------
     # Step 6: Coordinate Frame Transformations
@@ -171,11 +173,12 @@ def main():
     print("Transforming point clouds to robot coordinate frame...")
     # Transform cropped point cloud from camera frame to robot base frame
     # This is necessary because grasp planning works in robot coordinates
-    cropped_pcd_robot_frame = transform_pcd_cam_to_rob(cropped_pcd_crop_full_cam_frame)
-    
+    cropped_pcd_robot_frame = transform_pcd_cam_to_rob(
+        cropped_pcd_crop_full_cam_frame)
+
     # Also transform full scene point cloud for visualization
     pcd_robot_frame = transform_pcd_cam_to_rob(pcd)
-    
+
     # Prepare cropped point cloud data for grasp prediction service
     cropped_pcd_data_robot_frame = PointCloudData(
         points=np.array(cropped_pcd_robot_frame.points).tolist(),
@@ -186,19 +189,20 @@ def main():
     # Step 7: Grasp Prediction Service
     # -------------------------------------------------------------------------
     print("Requesting Grasp Prediction service...")
-    
+
     # Call external ML service to predict grasp poses on the cropped object
     # Returns 6DOF grasp poses (position + orientation) in robot frame
     grasps_response = client.predict_grasps(cropped_pcd_data_robot_frame)
     predicted_grasps_robot_frame = grasps_response.grasps
 
-    print(f"Generated {len(predicted_grasps_robot_frame)} potential grasp candidates")
+    print(
+        f"Generated {len(predicted_grasps_robot_frame)} potential grasp candidates")
 
     # -------------------------------------------------------------------------
     # Step 8: Grasp Filtering Service
     # -------------------------------------------------------------------------
     print("Requesting Grasp Filtering service...")
-    
+
     # Call external service to filter grasps for kinematic reachability
     # This ensures the robot can actually achieve the predicted grasp poses
     filter_response = client.filter_grasps(predicted_grasps_robot_frame)
@@ -211,21 +215,24 @@ def main():
         return
 
     # Extract valid grasps from the full set of predictions
-    valid_grasps: List[Grasp] = [predicted_grasps_robot_frame[i] for i in valid_grasp_idxs]
-    
+    valid_grasps: List[Grasp] = [predicted_grasps_robot_frame[i]
+                                 for i in valid_grasp_idxs]
+
     print(f"✅ Found {len(valid_grasps)} kinematically valid grasps")
 
     # -------------------------------------------------------------------------
     # Step 9: Grasp Selection and Visualization
     # -------------------------------------------------------------------------
-    
+
     # Select the first valid grasp for execution
     # In a real application, you might rank grasps by quality metrics
     chosen_grasp_idx = 0
     chosen_grasp = valid_grasps[chosen_grasp_idx]
-    
-    print(f"Selected grasp {chosen_grasp_idx + 1} out of {len(valid_grasps)} valid options")
-    print(f"Grasp position: [{chosen_grasp.translation[0]:.3f}, {chosen_grasp.translation[1]:.3f}, {chosen_grasp.translation[2]:.3f}]")
+
+    print(
+        f"Selected grasp {chosen_grasp_idx + 1} out of {len(valid_grasps)} valid options")
+    print(
+        f"Grasp position: [{chosen_grasp.translation[0]:.3f}, {chosen_grasp.translation[1]:.3f}, {chosen_grasp.translation[2]:.3f}]")
 
     # Visualize all valid grasps in 3D viewer
     print("Launching 3D visualization of valid grasps...")
@@ -239,14 +246,14 @@ def main():
     # Step 10: Grasp Execution
     # -------------------------------------------------------------------------
     print("Executing the selected grasp...")
-    
+
     # Get joint angles for the chosen grasp from filtering service
     grasp_joint_angles = valid_grasp_joint_angles[chosen_grasp_idx]
-    
+
     # Execute the grasp in simulation
     print("Moving robot to grasp pose and closing gripper...")
     env.grasp(grasp_joint_angles)
-    
+
     # Transport grasped object to tray
     print("Transporting object to tray...")
     env.drop_object_in_tray()

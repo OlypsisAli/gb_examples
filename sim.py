@@ -10,10 +10,9 @@ import time
 import cameras
 from transform import transform_cam_to_rob
 from client import Grasp
-from math import pi
 
 
-EEF_IDX = 5
+EEF_IDX = 9
 
 # Object properties constants
 DUCK_ORIENTATION = [np.pi / 2, 0, 0]
@@ -87,10 +86,6 @@ class Sim:
         self.upper_limits = []
         self.joint_ranges = []
         self.rest_poses = [0.0] * self.num_joints  # Initialize with zeros
-        
-        gripper_info = pb.getJointInfo(self.robot_id, 6)
-        print(f"Gripper joint limits: Lower={gripper_info[8]}, Upper={gripper_info[9]}")
-
 
         for joint_index in range(self.num_joints):
             joint_info = pb.getJointInfo(self.robot_id, joint_index)
@@ -169,10 +164,10 @@ class SimGrasp(Sim):
         self.realsensed435_cam = cameras.RealSenseD435.CONFIG
         self._random = np.random.RandomState(None)
         self.frequency = frequency
-        # pb.changeDynamics(self.robot_id, 7,
-        #                   lateralFriction=6, spinningFriction=3)
-        # pb.changeDynamics(self.robot_id, 8,
-        #                   lateralFriction=6, spinningFriction=3)
+        pb.changeDynamics(self.robot_id, 7,
+                          lateralFriction=6, spinningFriction=3)
+        pb.changeDynamics(self.robot_id, 8,
+                          lateralFriction=6, spinningFriction=3)
 
         # Dictionary to store object IDs
         self.object_ids = {}
@@ -362,7 +357,18 @@ class SimGrasp(Sim):
     def robot_control(self, gripper_width: float, tip_target_pos_: List[float], tip_target_orientation: Optional[List[float]] = None) -> None:
         """
         Controls the robot arm to reach a target end-effector pose and gripper width.
-        Updated for SO-100 single gripper joint.
+
+        Calculates inverse kinematics (IK) to find the required joint angles.
+        If `tip_target_orientation` is provided, it attempts to match both position and orientation.
+        Otherwise, it only matches the target position.
+        Sets the target joint angles (including gripper joints) using position control
+        and steps the simulation.
+
+        Args:
+            gripper_width (float): The desired distance between the gripper fingers.
+            tip_target_pos_ (List[float]): The target [x, y, z] position for the end-effector (link EEF_IDX).
+            tip_target_orientation (Optional[List[float]], optional): The target orientation
+                for the end-effector as a quaternion [qx, qy, qz, qw]. Defaults to None.
         """
         if tip_target_orientation:
             target_joint_angles = pb.calculateInverseKinematics(
@@ -388,21 +394,17 @@ class SimGrasp(Sim):
                 maxNumIterations=1000,
             )
 
-        target_joint_angles = list(target_joint_angles)
-
-        # SO-100 has a single gripper joint at index 6
-        # Map gripper_width to appropriate joint angle
-        # You may need to adjust this mapping based on your gripper's range
-        # Direct mapping, adjust if needed
-        target_joint_angles[6] = gripper_width
+        target_joint_angles = [x for x in target_joint_angles]
+        target_joint_angles[7] = gripper_width / 2
+        target_joint_angles[8] = -gripper_width / 2
 
         for i in range(30):
-            for j in range(len(target_joint_angles)):
+            for i in range(len(target_joint_angles)):
                 pb.setJointMotorControl2(
                     self.robot_id,
-                    j,
+                    i,
                     pb.POSITION_CONTROL,
-                    target_joint_angles[j],
+                    target_joint_angles[i],
                     force=5 * 240.0,
                 )
             pb.stepSimulation()
@@ -498,37 +500,33 @@ class SimGrasp(Sim):
     def grasp(self, grasp_joint_angles: List[float]) -> None:
         """
         Goes to the grasp joint angles then closes the gripper.
-        Updated for SO-100 single gripper joint.
+        Args:
+            grasp_joint_angles: List[float]: The joint angles to set.
         """
-        # For SO-100, we only have 6 arm joints + 1 gripper joint
-        # grasp_joint_angles contains the 6 arm joint angles
 
-        # Open gripper configuration
-        open_joint_angles = list(grasp_joint_angles) + [GRIPPER_OPEN_WIDTH]
-
-        # Move to position with open gripper
+        open_joint_angles = grasp_joint_angles + \
+            [0, GRIPPER_OPEN_WIDTH / 2, -GRIPPER_OPEN_WIDTH / 2]
+        closed_joint_angles = grasp_joint_angles + \
+            [0, GRIPPER_CLOSED_WIDTH / 2, -GRIPPER_CLOSED_WIDTH / 2]
         for i in range(30):
-            for j in range(len(open_joint_angles)):
+            for i in range(len(open_joint_angles)):
                 pb.setJointMotorControl2(
                     self.robot_id,
-                    j,
+                    i,
                     pb.POSITION_CONTROL,
-                    open_joint_angles[j],
+                    open_joint_angles[i],
                     force=5 * 240.0,
                 )
             pb.stepSimulation()
             time.sleep(1 / self.frequency)
 
-        # Close gripper
-        closed_joint_angles = list(grasp_joint_angles) + [GRIPPER_CLOSED_WIDTH]
-
         for i in range(30):
-            for j in range(len(closed_joint_angles)):
+            for i in range(len(closed_joint_angles)):
                 pb.setJointMotorControl2(
                     self.robot_id,
-                    j,
+                    i,
                     pb.POSITION_CONTROL,
-                    closed_joint_angles[j],
+                    closed_joint_angles[i],
                     force=5 * 240.0,
                 )
             pb.stepSimulation()
