@@ -10,6 +10,7 @@ import time
 import cameras
 from transform import transform_cam_to_rob
 from client import Grasp
+from lerobot.common.robot_devices.robots.utils import make_robot
 
 
 EEF_IDX = 9  
@@ -137,6 +138,32 @@ class Sim:
 
 
 class SimGrasp(Sim):
+    """
+    A PyBullet simulation wrapper that lets LeRobot handle all IK / limits
+    for the SO-100.  Compatible with the Bionix grasping examples.
+    """
+
+    def __init__(
+        self,
+        urdf_path: str,
+        start_pos: List[float] = [0, 0, 0],
+        start_orientation: List[float] = [0, 0, 0],
+    ):
+        super().__init__(urdf_path, start_pos, start_orientation)
+
+        # LeRobot object knows joint limits, DH, default home pose, etc.
+        self.robot_kin = make_robot("so100", use_sim=True)
+
+        # Handy shortcuts
+        self.joint_names: List[str] = self.robot_kin.joint_names
+        self.home_q: List[float] = self.robot_kin.home_joint_positions
+
+        # Map joint name ➜ PyBullet index once
+        self._name_to_index = {
+            pb.getJointInfo(self.robot_id, j)[1].decode(): j
+            for j in range(pb.getNumJoints(self.robot_id))
+        }
+
     def __init__(
         self,
         objects: List[ObjectInfo] = None,
