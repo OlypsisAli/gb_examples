@@ -10,10 +10,10 @@ import time
 import cameras
 from transform import transform_cam_to_rob
 from client import Grasp
-from lerobot.common.robot_devices.robots.utils import make_robot
+from math import pi
 
 
-EEF_IDX = 9  
+EEF_IDX = 5
 
 # Object properties constants
 DUCK_ORIENTATION = [np.pi / 2, 0, 0]
@@ -56,7 +56,8 @@ class Sim:
         self,
         urdf_path: Optional[str] = None,
         start_pos: List[float] = [0, 0, 0],
-        start_orientation: List[float] = [0, 0, 0],  # Euler angles [roll, pitch, yaw]
+        # Euler angles [roll, pitch, yaw]
+        start_orientation: List[float] = [0, 0, 0],
     ):
         """
         Initializes the PyBullet simulation environment and loads the robot.
@@ -71,7 +72,8 @@ class Sim:
         self.start_orientation = start_orientation
 
         # Convert Euler angles to quaternion for PyBullet
-        quaternion_orientation = pb.getQuaternionFromEuler(self.start_orientation)
+        quaternion_orientation = pb.getQuaternionFromEuler(
+            self.start_orientation)
 
         # Load the URDF
         self.robot_id = pb.loadURDF(
@@ -85,6 +87,10 @@ class Sim:
         self.upper_limits = []
         self.joint_ranges = []
         self.rest_poses = [0.0] * self.num_joints  # Initialize with zeros
+        
+        gripper_info = pb.getJointInfo(self.robot_id, 6)
+        print(f"Gripper joint limits: Lower={gripper_info[8]}, Upper={gripper_info[9]}")
+
 
         for joint_index in range(self.num_joints):
             joint_info = pb.getJointInfo(self.robot_id, joint_index)
@@ -103,7 +109,6 @@ class Sim:
                 self.lower_limits.append(lower_limit)
                 self.upper_limits.append(upper_limit)
                 self.joint_ranges.append(upper_limit - lower_limit)
-
 
     def __del__(self):
         """
@@ -138,38 +143,13 @@ class Sim:
 
 
 class SimGrasp(Sim):
-    """
-    A PyBullet simulation wrapper that lets LeRobot handle all IK / limits
-    for the SO-100.  Compatible with the Bionix grasping examples.
-    """
-
-    def __init__(
-        self,
-        urdf_path: str,
-        start_pos: List[float] = [0, 0, 0],
-        start_orientation: List[float] = [0, 0, 0],
-    ):
-        super().__init__(urdf_path, start_pos, start_orientation)
-
-        # LeRobot object knows joint limits, DH, default home pose, etc.
-        self.robot_kin = make_robot("so100", use_sim=True)
-
-        # Handy shortcuts
-        self.joint_names: List[str] = self.robot_kin.joint_names
-        self.home_q: List[float] = self.robot_kin.home_joint_positions
-
-        # Map joint name ➜ PyBullet index once
-        self._name_to_index = {
-            pb.getJointInfo(self.robot_id, j)[1].decode(): j
-            for j in range(pb.getNumJoints(self.robot_id))
-        }
-
     def __init__(
         self,
         objects: List[ObjectInfo] = None,
         urdf_path: Optional[str] = None,
         start_pos: List[float] = [0, 0, 0],
-        start_orientation: List[float] = [0, 0, 0],  # Euler angles [roll, pitch, yaw]
+        # Euler angles [roll, pitch, yaw]
+        start_orientation: List[float] = [0, 0, 0],
         frequency: int = 30,
     ):
         """
@@ -189,28 +169,30 @@ class SimGrasp(Sim):
         self.realsensed435_cam = cameras.RealSenseD435.CONFIG
         self._random = np.random.RandomState(None)
         self.frequency = frequency
-        pb.changeDynamics(self.robot_id, 7, lateralFriction=6, spinningFriction=3)
-        pb.changeDynamics(self.robot_id, 8, lateralFriction=6, spinningFriction=3)
-        
+        # pb.changeDynamics(self.robot_id, 7,
+        #                   lateralFriction=6, spinningFriction=3)
+        # pb.changeDynamics(self.robot_id, 8,
+        #                   lateralFriction=6, spinningFriction=3)
+
         # Dictionary to store object IDs
         self.object_ids = {}
-        
+
         # Load all objects
         for i, obj in enumerate(objects):
             obj_id = self.add_object(
-                obj.urdf_path, 
-                obj.position, 
-                obj.orientation, 
+                obj.urdf_path,
+                obj.position,
+                obj.orientation,
                 globalScaling=obj.scaling
             )
-            
+
             # Set object properties if specified
             if obj.color is not None:
                 pb.changeVisualShape(obj_id, -1, rgbaColor=obj.color)
-            
+
             if obj.mass is not None:
                 pb.changeDynamics(obj_id, -1, mass=obj.mass)
-            
+
             # Store object ID with a key based on the object type
             obj_type = obj.urdf_path.split('/')[-1].split('.')[0]
             if obj_type in self.object_ids:
@@ -219,7 +201,6 @@ class SimGrasp(Sim):
             else:
                 self.object_ids[obj_type] = obj_id
 
-    
     def step_simulation(self) -> None:
         """
         Steps the simulation.
@@ -234,7 +215,8 @@ class SimGrasp(Sim):
             joint_pos: List[float]: The joint positions to set.
         """
         for i in range(len(joint_pos)):
-            pb.setJointMotorControl2(self.robot_id, i, pb.POSITION_CONTROL, joint_pos[i], force=5 * 240.0)
+            pb.setJointMotorControl2(
+                self.robot_id, i, pb.POSITION_CONTROL, joint_pos[i], force=5 * 240.0)
 
     def add_debug_point(self, pos: List[float]) -> None:
         """
@@ -243,7 +225,6 @@ class SimGrasp(Sim):
             pos: List[float]: The position of the point.
         """
         pb.addUserDebugPoints([pos], [[1, 0, 0]], pointSize=10, lifeTime=1000)
-
 
     def add_object(self, urdf_path: str, pos=[0.3, 0.15, 0.0], orientation=[np.pi / 2, 0, 0], globalScaling: float = 1.0) -> int:
         """
@@ -259,7 +240,8 @@ class SimGrasp(Sim):
             int: The unique body ID assigned to the loaded object by PyBullet.
         """
         orientation = pb.getQuaternionFromEuler(orientation)
-        id = pb.loadURDF(urdf_path, pos, orientation, globalScaling=globalScaling)
+        id = pb.loadURDF(urdf_path, pos, orientation,
+                         globalScaling=globalScaling)
         pb.changeDynamics(id, -1, lateralFriction=2, spinningFriction=1)
         return id
 
@@ -312,7 +294,8 @@ class SimGrasp(Sim):
             color = np.uint8(np.clip(color, 0, 255))
 
         # Convert color data to numpy array and reshape
-        color = np.array(color, dtype=np.uint8).reshape(config["image_size"][0], config["image_size"][1], 4)
+        color = np.array(color, dtype=np.uint8).reshape(
+            config["image_size"][0], config["image_size"][1], 4)
         rgb = color[:, :, :3]  # Remove alpha channel
         self.obs = {'image': rgb, 'depth': depth, 'seg': segm}
 
@@ -347,7 +330,8 @@ class SimGrasp(Sim):
         camera_config = self.realsensed435_cam[0]
         # Convert numpy arrays to Open3D images
         o3d_color = o3d.geometry.Image(np.ascontiguousarray(color))
-        o3d_depth = o3d.geometry.Image(np.ascontiguousarray(depth.astype(np.float32)))
+        o3d_depth = o3d.geometry.Image(
+            np.ascontiguousarray(depth.astype(np.float32)))
 
         # Create RGBD image
         rgbd_image = o3d.geometry.RGBDImage.create_from_color_and_depth(
@@ -371,24 +355,14 @@ class SimGrasp(Sim):
         )
 
         # Create point cloud from RGBD image
-        pcd = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd_image, intrinsics)
+        pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
+            rgbd_image, intrinsics)
         return pcd
 
     def robot_control(self, gripper_width: float, tip_target_pos_: List[float], tip_target_orientation: Optional[List[float]] = None) -> None:
         """
         Controls the robot arm to reach a target end-effector pose and gripper width.
-
-        Calculates inverse kinematics (IK) to find the required joint angles.
-        If `tip_target_orientation` is provided, it attempts to match both position and orientation.
-        Otherwise, it only matches the target position.
-        Sets the target joint angles (including gripper joints) using position control
-        and steps the simulation.
-
-        Args:
-            gripper_width (float): The desired distance between the gripper fingers.
-            tip_target_pos_ (List[float]): The target [x, y, z] position for the end-effector (link EEF_IDX).
-            tip_target_orientation (Optional[List[float]], optional): The target orientation
-                for the end-effector as a quaternion [qx, qy, qz, qw]. Defaults to None.
+        Updated for SO-100 single gripper joint.
         """
         if tip_target_orientation:
             target_joint_angles = pb.calculateInverseKinematics(
@@ -414,22 +388,25 @@ class SimGrasp(Sim):
                 maxNumIterations=1000,
             )
 
-        target_joint_angles = [x for x in target_joint_angles]
-        target_joint_angles[7] = gripper_width / 2
-        target_joint_angles[8] = -gripper_width / 2
+        target_joint_angles = list(target_joint_angles)
+
+        # SO-100 has a single gripper joint at index 6
+        # Map gripper_width to appropriate joint angle
+        # You may need to adjust this mapping based on your gripper's range
+        # Direct mapping, adjust if needed
+        target_joint_angles[6] = gripper_width
 
         for i in range(30):
-            for i in range(len(target_joint_angles)):
+            for j in range(len(target_joint_angles)):
                 pb.setJointMotorControl2(
                     self.robot_id,
-                    i,
+                    j,
                     pb.POSITION_CONTROL,
-                    target_joint_angles[i],
+                    target_joint_angles[j],
                     force=5 * 240.0,
                 )
             pb.stepSimulation()
             time.sleep(1 / self.frequency)
-
 
     def transform_grasps_to_robot_frame(self, grasps_cam_frame: List[Grasp]) -> tuple[List[Grasp], np.ndarray, np.ndarray]:
         """
@@ -453,11 +430,11 @@ class SimGrasp(Sim):
             rot_orig = np.array(grasp.rotation)
             trans_orig = np.array(grasp.translation)
             rot, trans = transform_cam_to_rob(rot_orig, trans_orig)
-            transformed_grasps_robot_frame.append(Grasp(rotation=rot.tolist(), translation=trans.tolist()))
+            transformed_grasps_robot_frame.append(
+                Grasp(rotation=rot.tolist(), translation=trans.tolist()))
             all_transformed_rotations.append(rot)
             all_transformed_translations.append(trans)
         return transformed_grasps_robot_frame, np.array(all_transformed_rotations), np.array(all_transformed_translations)
-
 
     def execute_grasp_sequence(self, target_pose: List[float]) -> None:
         """
@@ -472,19 +449,23 @@ class SimGrasp(Sim):
         """
         # Move above the target pose with gripper open
         self.robot_control(
-            GRIPPER_OPEN_WIDTH, [target_pose[0], target_pose[1], target_pose[2] + GRASP_APPROACH_HEIGHT_OFFSET], target_pose[3:]
+            GRIPPER_OPEN_WIDTH, [target_pose[0], target_pose[1],
+                                 target_pose[2] + GRASP_APPROACH_HEIGHT_OFFSET], target_pose[3:]
         )
         # Move to the target grasp pose
         self.robot_control(
-            GRIPPER_OPEN_WIDTH, [target_pose[0], target_pose[1], target_pose[2] - GRASP_POSITION_OFFSET], target_pose[3:]
+            GRIPPER_OPEN_WIDTH, [target_pose[0], target_pose[1],
+                                 target_pose[2] - GRASP_POSITION_OFFSET], target_pose[3:]
         )
         # Close the gripper
         self.robot_control(
-            GRIPPER_CLOSED_WIDTH, [target_pose[0], target_pose[1], target_pose[2] - GRASP_POSITION_OFFSET], target_pose[3:]
+            GRIPPER_CLOSED_WIDTH, [target_pose[0], target_pose[1],
+                                   target_pose[2] - GRASP_POSITION_OFFSET], target_pose[3:]
         )
         # Lift the object
         self.robot_control(
-            GRIPPER_CLOSED_WIDTH, [target_pose[0], target_pose[1], target_pose[2] + GRASP_APPROACH_HEIGHT_OFFSET], target_pose[3:]
+            GRIPPER_CLOSED_WIDTH, [target_pose[0], target_pose[1],
+                                   target_pose[2] + GRASP_APPROACH_HEIGHT_OFFSET], target_pose[3:]
         )
 
     def drop_object_in_tray(self) -> None:
@@ -492,16 +473,18 @@ class SimGrasp(Sim):
         Moves the gripper over the tray, then opens it to drop the currently held object.
         """
         # Get tray position
-        tray_id = self.tray_id if hasattr(self, 'tray_id') else self.object_ids.get('traybox', None)
+        tray_id = self.tray_id if hasattr(
+            self, 'tray_id') else self.object_ids.get('traybox', None)
         if tray_id is None:
             print("Warning: No tray found in simulation. Cannot drop object.")
             return
-            
+
         tray_pos, _ = pb.getBasePositionAndOrientation(tray_id)
         # Define target position above the tray center
-        drop_target_pos = [tray_pos[0], tray_pos[1], tray_pos[2] + TRAY_DROP_HEIGHT_OFFSET] # Adjust height as needed
+        drop_target_pos = [tray_pos[0], tray_pos[1], tray_pos[2] +
+                           TRAY_DROP_HEIGHT_OFFSET]  # Adjust height as needed
         drop_target_orientation = TRAY_DROP_ORIENTATION
-        
+
         # Move above the tray with gripper closed
         self.robot_control(
             GRIPPER_CLOSED_WIDTH, drop_target_pos, drop_target_orientation
@@ -511,35 +494,41 @@ class SimGrasp(Sim):
         self.robot_control(
             GRIPPER_OPEN_WIDTH, drop_target_pos, drop_target_orientation
         )
-    
+
     def grasp(self, grasp_joint_angles: List[float]) -> None:
         """
         Goes to the grasp joint angles then closes the gripper.
-        Args:
-            grasp_joint_angles: List[float]: The joint angles to set.
+        Updated for SO-100 single gripper joint.
         """
+        # For SO-100, we only have 6 arm joints + 1 gripper joint
+        # grasp_joint_angles contains the 6 arm joint angles
 
-        open_joint_angles = grasp_joint_angles + [0, GRIPPER_OPEN_WIDTH / 2, -GRIPPER_OPEN_WIDTH / 2]
-        closed_joint_angles = grasp_joint_angles + [0, GRIPPER_CLOSED_WIDTH / 2, -GRIPPER_CLOSED_WIDTH / 2]
+        # Open gripper configuration
+        open_joint_angles = list(grasp_joint_angles) + [GRIPPER_OPEN_WIDTH]
+
+        # Move to position with open gripper
         for i in range(30):
-            for i in range(len(open_joint_angles)):
+            for j in range(len(open_joint_angles)):
                 pb.setJointMotorControl2(
                     self.robot_id,
-                    i,
+                    j,
                     pb.POSITION_CONTROL,
-                    open_joint_angles[i],
+                    open_joint_angles[j],
                     force=5 * 240.0,
                 )
             pb.stepSimulation()
             time.sleep(1 / self.frequency)
 
+        # Close gripper
+        closed_joint_angles = list(grasp_joint_angles) + [GRIPPER_CLOSED_WIDTH]
+
         for i in range(30):
-            for i in range(len(closed_joint_angles)):
+            for j in range(len(closed_joint_angles)):
                 pb.setJointMotorControl2(
                     self.robot_id,
-                    i,
+                    j,
                     pb.POSITION_CONTROL,
-                    closed_joint_angles[i],
+                    closed_joint_angles[j],
                     force=5 * 240.0,
                 )
             pb.stepSimulation()
